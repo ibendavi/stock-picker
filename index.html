@@ -194,12 +194,31 @@
             <div class="control-group">
                 <label>Strategy (Ranking Criterion)</label>
                 <select id="strategy" onchange="onSettingChange()">
-                    <option value="best_return">Buy Past Winners (best return)</option>
-                    <option value="worst_return">Buy Past Losers (contrarian)</option>
-                    <option value="best_sharpe">Best Past Sharpe Ratio</option>
-                    <option value="low_vol">Lowest Past Volatility</option>
-                    <option value="above_ma">Price Above 12-Mo MA (momentum)</option>
-                    <option value="high_div">Highest Dividend Yield</option>
+                    <optgroup label="Momentum & Trend">
+                        <option value="best_return">Buy Past Winners (best return)</option>
+                        <option value="momentum_skip">12-Mo Momentum, Skip Recent Month (Jegadeesh-Titman)</option>
+                        <option value="above_ma">Price Above 12-Mo Moving Average</option>
+                        <option value="sector_momentum">Sector Momentum (best-performing sector)</option>
+                    </optgroup>
+                    <optgroup label="Contrarian & Mean Reversion">
+                        <option value="worst_return">Buy Past Losers (contrarian)</option>
+                        <option value="short_term_reversal">Short-Term Reversal (worst last month)</option>
+                        <option value="biggest_drawdown">Buy the Dip (biggest drawdown from peak)</option>
+                    </optgroup>
+                    <optgroup label="Risk-Based">
+                        <option value="low_vol">Lowest Volatility (defensive)</option>
+                        <option value="high_vol">Highest Volatility (risk-seeking)</option>
+                        <option value="best_sharpe">Best Risk-Adjusted Return (Sharpe)</option>
+                        <option value="smallest_drawdown">Smallest Max Drawdown (safest)</option>
+                    </optgroup>
+                    <optgroup label="Income & Value">
+                        <option value="high_div">Highest Dividend Yield</option>
+                        <option value="div_growth">Rising Dividends (dividend growth)</option>
+                    </optgroup>
+                    <optgroup label="Composite & Other">
+                        <option value="quality">Quality (high Sharpe + low drawdown)</option>
+                        <option value="dogs_of_market">Dogs of the Market (worst Sharpe, contrarian)</option>
+                    </optgroup>
                 </select>
             </div>
             <div class="control-group">
@@ -372,10 +391,57 @@ function rankStocks(year, lookbackMonths, strategy) {
             aboveMA = d.aboveMA[endIdx];
         }
 
+        // 12-mo momentum skipping last month (Jegadeesh-Titman)
+        let momSkip = null;
+        if (endIdx >= 1) {
+            const momStart = endIdx - 12;
+            const momEnd = endIdx - 1; // skip most recent month
+            if (momStart >= 0) {
+                const momReturns = d.returns.slice(momStart, momEnd + 1);
+                if (momReturns.length >= 8) momSkip = totalReturn(momReturns);
+            }
+        }
+
+        // Short-term reversal: just last month's return
+        let lastMonthRet = null;
+        if (endIdx >= 0) lastMonthRet = d.returns[endIdx];
+
+        // Max drawdown over lookback period
+        let pastMaxDD = maxDrawdown(pastReturns);
+
+        // Dividend growth: compare trailing 12mo yield now vs 12mo ago
+        let divGrowth = null;
+        if (d.divYield && endIdx >= 12) {
+            const now = d.divYield[endIdx];
+            const ago = d.divYield[endIdx - 12];
+            if (now != null && ago != null && ago > 0) {
+                divGrowth = ((now - ago) / ago) * 100;
+            }
+        }
+
+        // Quality score: normalized Sharpe + normalized (inverse) drawdown
+        // (computed after sorting, use raw values for now)
+        const qualityScore = pastSharpe - pastMaxDD / 100; // higher Sharpe + less negative DD = better
+
         ranked.push({
             ticker, sector: d.sector, name: d.name,
             pastRet, pastVol, pastSharpe, avgDivYield, aboveMA,
+            momSkip, lastMonthRet, pastMaxDD, divGrowth, qualityScore,
         });
+    }
+
+    // Sector momentum: compute avg return by sector
+    if (strategy === 'sector_momentum') {
+        const sectorRet = {};
+        const sectorCount = {};
+        for (const s of ranked) {
+            if (!sectorRet[s.sector]) { sectorRet[s.sector] = 0; sectorCount[s.sector] = 0; }
+            sectorRet[s.sector] += s.pastRet;
+            sectorCount[s.sector]++;
+        }
+        for (const sec in sectorRet) sectorRet[sec] /= sectorCount[sec];
+        // Assign sector return to each stock
+        for (const s of ranked) s.sectorAvgRet = sectorRet[s.sector];
     }
 
     // Sort based on strategy
@@ -388,14 +454,34 @@ function rankStocks(year, lookbackMonths, strategy) {
             ranked.sort((a,b) => b.pastSharpe - a.pastSharpe); break;
         case 'low_vol':
             ranked.sort((a,b) => a.pastVol - b.pastVol); break;
+        case 'high_vol':
+            ranked.sort((a,b) => b.pastVol - a.pastVol); break;
         case 'above_ma':
-            // Put above-MA stocks first, then sort by return
             ranked.sort((a,b) => {
                 if (a.aboveMA !== b.aboveMA) return (b.aboveMA || 0) - (a.aboveMA || 0);
                 return b.pastRet - a.pastRet;
             }); break;
         case 'high_div':
             ranked.sort((a,b) => (b.avgDivYield || 0) - (a.avgDivYield || 0)); break;
+        case 'momentum_skip':
+            ranked.sort((a,b) => (b.momSkip || -999) - (a.momSkip || -999)); break;
+        case 'short_term_reversal':
+            ranked.sort((a,b) => (a.lastMonthRet || 0) - (b.lastMonthRet || 0)); break;
+        case 'biggest_drawdown':
+            ranked.sort((a,b) => a.pastMaxDD - b.pastMaxDD); break; // most negative first
+        case 'smallest_drawdown':
+            ranked.sort((a,b) => b.pastMaxDD - a.pastMaxDD); break; // least negative first
+        case 'div_growth':
+            ranked.sort((a,b) => (b.divGrowth || -999) - (a.divGrowth || -999)); break;
+        case 'quality':
+            ranked.sort((a,b) => b.qualityScore - a.qualityScore); break;
+        case 'dogs_of_market':
+            ranked.sort((a,b) => a.pastSharpe - b.pastSharpe); break;
+        case 'sector_momentum':
+            ranked.sort((a,b) => {
+                if (Math.abs(a.sectorAvgRet - b.sectorAvgRet) > 0.01) return b.sectorAvgRet - a.sectorAvgRet;
+                return b.pastRet - a.pastRet;
+            }); break;
     }
 
     return ranked;
@@ -410,28 +496,58 @@ function displayRanking(ranked, nStocks, strategy) {
         worst_return: 'ranked by past return (worst first)',
         best_sharpe: 'ranked by past Sharpe ratio',
         low_vol: 'ranked by past volatility (lowest first)',
+        high_vol: 'ranked by past volatility (highest first)',
         above_ma: 'ranked by momentum (above 12-mo MA first)',
         high_div: 'ranked by dividend yield (highest first)',
+        momentum_skip: 'ranked by 12-mo return, skipping last month',
+        short_term_reversal: 'ranked by last month return (worst first)',
+        biggest_drawdown: 'ranked by max drawdown (deepest first)',
+        smallest_drawdown: 'ranked by max drawdown (shallowest first)',
+        div_growth: 'ranked by dividend yield growth',
+        quality: 'ranked by quality score (Sharpe + low drawdown)',
+        dogs_of_market: 'ranked by worst Sharpe ratio (dogs first)',
+        sector_momentum: 'ranked by sector average return (best sector first)',
     };
 
     document.getElementById('ranking-subtitle').textContent =
-        `\u2014 ${ranked.length} stocks ${strategyLabel[strategy]}`;
+        `\u2014 ${ranked.length} stocks ${strategyLabel[strategy] || ''}`;
 
     const quintileSize = Math.ceil(ranked.length / 5);
+
+    const extraHead = {
+        high_div: '<th class="num">Div Yield</th>',
+        div_growth: '<th class="num">Div Yield</th><th class="num">Div Growth</th>',
+        above_ma: '<th>Above MA</th>',
+        momentum_skip: '<th class="num">12-Mo Mom</th>',
+        short_term_reversal: '<th class="num">Last Month</th>',
+        biggest_drawdown: '<th class="num">Max DD</th>',
+        smallest_drawdown: '<th class="num">Max DD</th>',
+        quality: '<th class="num">Quality</th>',
+        sector_momentum: '<th class="num">Sector Avg</th>',
+    };
+
     let html = `<table class="ranking-table">
         <thead><tr>
             <th>#</th><th>Ticker</th><th>Sector</th>
             <th class="num">Past Return</th>
             <th class="num">Past Vol</th>
             <th class="num">Past Sharpe</th>
-            ${strategy === 'high_div' ? '<th class="num">Div Yield</th>' : ''}
-            ${strategy === 'above_ma' ? '<th>Above MA</th>' : ''}
+            ${extraHead[strategy] || ''}
         </tr></thead><tbody>`;
 
     ranked.forEach((s, i) => {
         const cls = i < nStocks ? 'selected' :
                     i < quintileSize ? 'top' :
                     i >= ranked.length - quintileSize ? 'bottom' : '';
+        let extra = '';
+        if (strategy === 'high_div') extra = `<td class="num">${s.avgDivYield != null ? s.avgDivYield.toFixed(1) + '%' : 'N/A'}</td>`;
+        else if (strategy === 'div_growth') extra = `<td class="num">${s.avgDivYield != null ? s.avgDivYield.toFixed(1) + '%' : 'N/A'}</td><td class="num">${s.divGrowth != null ? (s.divGrowth >= 0 ? '+' : '') + s.divGrowth.toFixed(0) + '%' : 'N/A'}</td>`;
+        else if (strategy === 'above_ma') extra = `<td>${s.aboveMA ? 'Yes' : 'No'}</td>`;
+        else if (strategy === 'momentum_skip') extra = `<td class="num">${s.momSkip != null ? (s.momSkip >= 0 ? '+' : '') + s.momSkip.toFixed(1) + '%' : 'N/A'}</td>`;
+        else if (strategy === 'short_term_reversal') extra = `<td class="num">${s.lastMonthRet != null ? (s.lastMonthRet >= 0 ? '+' : '') + s.lastMonthRet.toFixed(1) + '%' : 'N/A'}</td>`;
+        else if (strategy === 'biggest_drawdown' || strategy === 'smallest_drawdown') extra = `<td class="num">${s.pastMaxDD.toFixed(1)}%</td>`;
+        else if (strategy === 'quality') extra = `<td class="num">${s.qualityScore.toFixed(2)}</td>`;
+        else if (strategy === 'sector_momentum') extra = `<td class="num">${s.sectorAvgRet != null ? (s.sectorAvgRet >= 0 ? '+' : '') + s.sectorAvgRet.toFixed(1) + '%' : ''}</td>`;
         html += `<tr class="${cls}">
             <td>${i + 1}</td>
             <td><b>${s.ticker}</b></td>
@@ -439,8 +555,7 @@ function displayRanking(ranked, nStocks, strategy) {
             <td class="num">${s.pastRet >= 0 ? '+' : ''}${s.pastRet.toFixed(1)}%</td>
             <td class="num">${s.pastVol.toFixed(1)}%</td>
             <td class="num">${s.pastSharpe.toFixed(2)}</td>
-            ${strategy === 'high_div' ? `<td class="num">${s.avgDivYield != null ? s.avgDivYield.toFixed(1) + '%' : 'N/A'}</td>` : ''}
-            ${strategy === 'above_ma' ? `<td>${s.aboveMA ? 'Yes' : 'No'}</td>` : ''}
+            ${extra}
         </tr>`;
     });
     html += '</tbody></table>';
@@ -565,21 +680,69 @@ function displayResults(fwd, strategyName, year) {
     const labels = {
         best_return: 'Buy Past Winners',
         worst_return: 'Buy Past Losers (contrarian)',
-        best_sharpe: 'Best Past Sharpe',
-        low_vol: 'Lowest Past Volatility',
-        above_ma: 'Momentum (Above MA)',
+        best_sharpe: 'Best Risk-Adjusted Return',
+        low_vol: 'Low Volatility',
+        high_vol: 'High Volatility',
+        above_ma: 'Trend Following (Above MA)',
         high_div: 'High Dividend Yield',
+        momentum_skip: '12-Mo Momentum (Skip Recent)',
+        short_term_reversal: 'Short-Term Reversal',
+        biggest_drawdown: 'Buy the Dip',
+        smallest_drawdown: 'Safest Stocks',
+        div_growth: 'Rising Dividends',
+        quality: 'Quality',
+        dogs_of_market: 'Dogs of the Market',
+        sector_momentum: 'Sector Momentum',
     };
     let insight = `Your <b>"${labels[strategyName]}"</b> strategy returned <b>${fmtPct(portTotal)}</b>, ` +
         `while the S&P 500 returned <b>${fmtPct(spyTotal)}</b> and a random portfolio returned <b>${fmtPct(randTotal)}</b>.`;
 
-    if (strategyName === 'best_return' && !beat) {
-        insight += `<br><br><b>Mean reversion in action:</b> Past winners didn't keep winning. This is consistent with the idea that markets are at least partially efficient.`;
-    } else if (strategyName === 'worst_return' && beat) {
-        insight += `<br><br><b>Contrarian investing worked here:</b> Past losers bounced back, consistent with mean reversion.`;
-    } else if (strategyName === 'best_return' && beat) {
-        insight += `<br><br><b>Momentum persisted:</b> Winners kept winning in this period. However, check if this holds across all years.`;
-    }
+    // Strategy-specific commentary
+    const commentary = {
+        best_return: beat
+            ? `<b>Momentum persisted:</b> Winners kept winning in this period. But does this hold across all years? Click "Run All Years" to find out.`
+            : `<b>Mean reversion in action:</b> Past winners didn't keep winning. This is consistent with the idea that markets are at least partially efficient.`,
+        worst_return: beat
+            ? `<b>Contrarian investing worked here:</b> Past losers bounced back, consistent with mean reversion and overreaction theory.`
+            : `<b>Losers kept losing:</b> Sometimes cheap stocks are cheap for a reason. Not all beaten-down stocks recover.`,
+        momentum_skip: beat
+            ? `<b>Academic momentum factor worked:</b> The Jegadeesh-Titman strategy (12-mo return, skip last month) is one of the best-documented anomalies in finance. It worked this time \u2014 but momentum can crash spectacularly.`
+            : `<b>Momentum crashed:</b> Momentum strategies are known for occasional severe reversals, especially around market turning points.`,
+        short_term_reversal: beat
+            ? `<b>Short-term reversal worked:</b> Stocks that dropped sharply last month bounced back. This is consistent with overreaction at the monthly level.`
+            : `<b>Last month's losers kept falling:</b> Short-term reversal doesn't always work \u2014 sometimes a drop signals real trouble ahead.`,
+        above_ma: beat
+            ? `<b>Trend following paid off:</b> Buying stocks above their moving average captured uptrends. But this strategy can whipsaw in choppy markets.`
+            : `<b>Trend following failed here:</b> Moving average signals can be too slow to react or generate false signals in volatile markets.`,
+        low_vol: beat
+            ? `<b>Low-vol anomaly:</b> Boring, low-volatility stocks outperformed \u2014 one of the most puzzling findings in finance. Why would less risky stocks earn more?`
+            : `<b>Risk-return held up:</b> Low-volatility stocks earned less, consistent with the basic finance principle that higher risk should earn higher returns.`,
+        high_vol: beat
+            ? `<b>High risk paid off:</b> The riskiest stocks delivered the highest returns this time. But check the max drawdown \u2014 could you have stomached the ride?`
+            : `<b>Lottery ticket stocks disappointed:</b> High-volatility stocks often attract speculative buyers who bid up prices, leading to poor future returns.`,
+        high_div: beat
+            ? `<b>Dividend investing worked:</b> High-yield stocks outperformed. Dividends provided income and signaled financially healthy companies.`
+            : `<b>High yield was a trap:</b> Very high dividend yields can signal a company in distress (the "yield trap"). The price may be falling faster than dividends.`,
+        div_growth: beat
+            ? `<b>Rising dividends = quality signal:</b> Companies raising dividends tend to be financially healthy with growing earnings. This quality signal worked.`
+            : `<b>Dividend growth didn't predict returns:</b> While rising dividends signal health, the market may have already priced this in.`,
+        biggest_drawdown: beat
+            ? `<b>"Buy the dip" worked:</b> Stocks that fell the hardest recovered. But this is essentially a bet on mean reversion \u2014 it fails when companies are genuinely in trouble.`
+            : `<b>Falling knives kept falling:</b> Sometimes a big drawdown signals fundamental problems, not a buying opportunity. Catching falling knives is dangerous.`,
+        smallest_drawdown: beat
+            ? `<b>Safety outperformed:</b> Stocks with the smallest drawdowns also delivered strong returns. Low drawdown may signal business quality.`
+            : `<b>Playing it safe underperformed:</b> The safest stocks often have limited upside. In bull markets, defensive stocks tend to lag.`,
+        quality: beat
+            ? `<b>Quality wins:</b> Stocks with high Sharpe ratios and small drawdowns continued to outperform. Quality is a well-documented factor in asset pricing.`
+            : `<b>Quality didn't help this time:</b> Even quality stocks can underperform when the market favors speculative or turnaround stories.`,
+        dogs_of_market: beat
+            ? `<b>Dogs had their day:</b> The worst risk-adjusted stocks bounced back. This is a pure contrarian bet \u2014 buying what everyone else hated.`
+            : `<b>Dogs stayed dogs:</b> The worst-performing stocks on a risk-adjusted basis continued to disappoint. Sometimes the market is right.`,
+        sector_momentum: beat
+            ? `<b>Sector rotation worked:</b> Riding the hot sector paid off. But sector leadership rotates, and chasing last year's winners is risky.`
+            : `<b>Sector rotation failed:</b> Last period's best sector underperformed. Sector leadership often reverses as valuations get stretched.`,
+    };
+    if (commentary[strategyName]) insight += `<br><br>${commentary[strategyName]}`;
 
     if (year >= 2007 && year <= 2008) {
         insight += `<br><br><b>Financial crisis context:</b> You're investing around the 2008 crisis. Watch how the portfolio behaves during extreme market stress.`;
