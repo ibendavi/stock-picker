@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Selection &amp; Market Efficiency | MBA 6223 Finance</title>
+    <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: #f5f5f5; color: #333;
+        }
+        .header { background: #BB0000; color: white; padding: 14px 24px; text-align: center; }
+        .header h1 { font-size: 1.35rem; font-weight: 700; margin-bottom: 1px; }
+        .header p { font-size: 0.82rem; opacity: 0.92; }
+        .container { max-width: 1000px; margin: 0 auto; padding: 20px 16px; }
+
+        /* Controls */
+        .control-panel {
+            background: white; border-radius: 10px;
+            box-shadow: 0 1px 6px rgba(0,0,0,.07);
+            padding: 18px; margin-bottom: 14px;
+        }
+        .control-row {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 12px;
+        }
+        .control-group { flex: 1; min-width: 200px; }
+        .control-group label {
+            display: block; font-size: 0.78rem; font-weight: 700; color: #888;
+            text-transform: uppercase; letter-spacing: .4px; margin-bottom: 4px;
+        }
+        .control-group select, .control-group input[type=range] {
+            width: 100%; padding: 8px; font-size: 0.95rem;
+            border: 2px solid #ddd; border-radius: 6px; outline: none;
+        }
+        .control-group select:focus { border-color: #BB0000; }
+        .control-group input[type=range] {
+            accent-color: #BB0000; border: none; padding: 0;
+        }
+        .slider-label {
+            font-size: 0.85rem; font-weight: 700; color: #BB0000;
+        }
+        .year-display {
+            font-size: 1.5rem; font-weight: 800; color: #BB0000;
+            text-align: center; margin-bottom: 4px;
+        }
+
+        .btn {
+            padding: 10px 24px; font-size: 0.95rem; font-weight: 600;
+            background: #BB0000; color: white; border: none; border-radius: 8px;
+            cursor: pointer; white-space: nowrap;
+        }
+        .btn:hover { background: #990000; }
+        .btn.secondary { background: #555; }
+        .btn.secondary:hover { background: #333; }
+        .btn:disabled { background: #bbb; cursor: not-allowed; }
+        .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        /* Cards */
+        .card {
+            background: white; border-radius: 10px;
+            box-shadow: 0 1px 6px rgba(0,0,0,.07); padding: 16px; margin-bottom: 14px;
+        }
+        .card-title {
+            font-size: 0.82rem; font-weight: 700; color: #888;
+            text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px;
+        }
+
+        /* Stats grid */
+        .stats-row {
+            display: grid; grid-template-columns: repeat(4, 1fr);
+            gap: 10px; margin-bottom: 14px;
+        }
+        .stat {
+            background: white; border-radius: 10px;
+            box-shadow: 0 1px 6px rgba(0,0,0,.07);
+            padding: 12px 8px; text-align: center;
+        }
+        .stat .lbl {
+            font-size: 0.68rem; color: #999; text-transform: uppercase;
+            letter-spacing: .4px; margin-bottom: 2px;
+        }
+        .stat .val { font-size: 1.3rem; font-weight: 700; color: #BB0000; }
+        .stat .sub { font-size: 0.67rem; color: #aaa; margin-top: 1px; }
+        .stat .val.green { color: #1a7a1a; }
+        .stat .val.red { color: #cc0000; }
+
+        /* Insight box */
+        .insight-box {
+            background: #fdf6f0; border: 1px solid #e8d5c4; border-left: 4px solid #BB0000;
+            border-radius: 8px; padding: 14px 18px; margin-bottom: 14px;
+            font-size: 0.88rem; line-height: 1.6;
+        }
+        .insight-box b { color: #BB0000; }
+
+        /* Ranking table */
+        .ranking-table-wrap { max-height: 350px; overflow-y: auto; margin-bottom: 14px; }
+        .ranking-table {
+            width: 100%; border-collapse: collapse; font-size: 0.82rem;
+        }
+        .ranking-table th {
+            position: sticky; top: 0; background: #f8f8f8;
+            border-bottom: 2px solid #ddd; padding: 6px 8px; text-align: left;
+            font-size: 0.72rem; text-transform: uppercase; color: #888;
+        }
+        .ranking-table td {
+            padding: 5px 8px; border-bottom: 1px solid #eee;
+        }
+        .ranking-table tr.top { background: #e8f5e9; }
+        .ranking-table tr.bottom { background: #ffebee; }
+        .ranking-table tr.selected { background: #fff3e0; font-weight: 600; }
+        .ranking-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+        /* All-years summary */
+        .summary-box {
+            background: #e8eaf6; border: 1px solid #c5cae9; border-radius: 8px;
+            padding: 14px 18px; margin-bottom: 14px; font-size: 0.95rem;
+            text-align: center; font-weight: 600;
+        }
+        .summary-box .big { font-size: 1.4rem; color: #BB0000; }
+
+        /* Loading */
+        #loading {
+            text-align: center; padding: 30px; font-size: 0.9rem; color: #777;
+        }
+        .spin {
+            display: inline-block; width: 18px; height: 18px;
+            border: 3px solid #ddd; border-top-color: #BB0000;
+            border-radius: 50%; animation: sp .7s linear infinite;
+            vertical-align: middle; margin-right: 6px;
+        }
+        @keyframes sp { to { transform: rotate(360deg); } }
+        #error-box {
+            background: #fff3f3; border: 1px solid #f5c6c6; color: #b00;
+            padding: 12px 16px; border-radius: 8px; margin-bottom: 14px;
+            display: none; font-size: 0.92rem;
+        }
+
+        .footer {
+            text-align: center; font-size: 0.7rem; color: #aaa;
+            padding: 12px 16px; line-height: 1.5;
+        }
+
+        #results { display: none; }
+        #all-years-results { display: none; }
+
+        @media (max-width: 700px) {
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
+            .control-row { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>Stock Selection & Market Efficiency</h1>
+    <p>MBA 6223 Finance &mdash; The Ohio State University</p>
+</div>
+
+<div class="container">
+
+    <div id="loading"><span class="spin"></span> Loading historical data&hellip;</div>
+
+    <div id="app" style="display:none;">
+
+    <!-- Time Machine Controls -->
+    <div class="control-panel">
+        <div class="year-display" id="year-display">You are standing in 2015</div>
+        <div class="control-row">
+            <div class="control-group" style="flex:2;">
+                <label>Select Year</label>
+                <input type="range" id="year-slider" min="2006" max="2021" value="2015" step="1"
+                       oninput="onYearChange(this.value)">
+            </div>
+            <div class="control-group">
+                <label>Look-Back Window</label>
+                <select id="lookback" onchange="onSettingChange()">
+                    <option value="12">1 year</option>
+                    <option value="36" selected>3 years</option>
+                    <option value="60">5 years</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>Hold Period</label>
+                <select id="hold" onchange="onSettingChange()">
+                    <option value="12">1 year</option>
+                    <option value="36" selected>3 years</option>
+                    <option value="60">5 years</option>
+                </select>
+            </div>
+        </div>
+        <div class="control-row">
+            <div class="control-group">
+                <label>Strategy (Ranking Criterion)</label>
+                <select id="strategy" onchange="onSettingChange()">
+                    <option value="best_return">Buy Past Winners (best return)</option>
+                    <option value="worst_return">Buy Past Losers (contrarian)</option>
+                    <option value="best_sharpe">Best Past Sharpe Ratio</option>
+                    <option value="low_vol">Lowest Past Volatility</option>
+                    <option value="above_ma">Price Above 12-Mo MA (momentum)</option>
+                    <option value="high_div">Highest Dividend Yield</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label># Stocks to Buy: <span class="slider-label" id="nstocks-label">10</span></label>
+                <input type="range" id="nstocks" min="5" max="25" value="10" step="5"
+                       oninput="document.getElementById('nstocks-label').textContent=this.value; onSettingChange();">
+            </div>
+        </div>
+        <div class="btn-row">
+            <button class="btn" onclick="runStrategy()">Buy & Compare</button>
+            <button class="btn secondary" onclick="runAllYears()">Run All Years</button>
+        </div>
+    </div>
+
+    <div id="error-box"></div>
+
+    <!-- Ranking Table -->
+    <div class="card">
+        <div class="card-title">Stock Rankings <span id="ranking-subtitle"></span></div>
+        <div class="ranking-table-wrap" id="ranking-wrap"></div>
+    </div>
+
+    <!-- Single-Year Results -->
+    <div id="results">
+        <div class="stats-row" id="stats"></div>
+        <div class="insight-box" id="insight-box"></div>
+        <div class="card"><div id="chart-growth"></div></div>
+    </div>
+
+    <!-- All-Years Results -->
+    <div id="all-years-results">
+        <div class="summary-box" id="summary-box"></div>
+        <div class="card"><div id="chart-allyears"></div></div>
+    </div>
+
+    </div><!-- /app -->
+</div>
+
+<div class="footer">
+    Data: Yahoo Finance &middot; Monthly total returns &middot; Equal-weighted portfolios<br>
+    Survivorship bias warning: this dataset only includes stocks that still exist today. Companies that went bankrupt or delisted are excluded, which may overstate returns of some strategies.<br>
+    For educational use only.
+</div>
+
+<script>
+/* =================================================================== */
+const SCARLET = '#BB0000';
+const SPY_COLOR = '#4472C4';
+const RANDOM_COLOR = '#2ecc71';
+const plotCfg = { responsive: true, displayModeBar: false };
+
+let DATA = null;
+
+/* Load data */
+(async function() {
+    try {
+        const r = await fetch('stock_data.json');
+        if (r.ok) {
+            DATA = await r.json();
+            console.log(`Loaded ${Object.keys(DATA.tickers).length} tickers`);
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('app').style.display = 'block';
+            onYearChange(document.getElementById('year-slider').value);
+        }
+    } catch(e) {
+        document.getElementById('loading').innerHTML = 'Failed to load stock_data.json';
+    }
+})();
+
+function showError(msg) {
+    const box = document.getElementById('error-box');
+    box.textContent = msg; box.style.display = 'block';
+    setTimeout(() => box.style.display = 'none', 5000);
+}
+
+/* =================================================================== */
+/* HELPERS                                                              */
+/* =================================================================== */
+function getDateIndex(dates, yearMonth) {
+    return dates.indexOf(yearMonth);
+}
+
+function findClosestDate(dates, ym) {
+    // Find the closest date at or before ym
+    let best = -1;
+    for (let i = 0; i < dates.length; i++) {
+        if (dates[i] <= ym) best = i;
+    }
+    return best;
+}
+
+function annReturn(returns) {
+    if (returns.length === 0) return 0;
+    let cum = 1;
+    for (const r of returns) cum *= (1 + r / 100);
+    const yrs = returns.length / 12;
+    if (yrs <= 0) return 0;
+    return (Math.pow(cum, 1 / yrs) - 1) * 100;
+}
+
+function totalReturn(returns) {
+    let cum = 1;
+    for (const r of returns) cum *= (1 + r / 100);
+    return (cum - 1) * 100;
+}
+
+function annVol(returns) {
+    if (returns.length < 2) return 0;
+    const n = returns.length;
+    const mean = returns.reduce((a,b) => a+b, 0) / n;
+    const variance = returns.reduce((a,r) => a + (r-mean)**2, 0) / (n-1);
+    return Math.sqrt(variance * 12);
+}
+
+function sharpeRatio(returns) {
+    const ret = annReturn(returns);
+    const vol = annVol(returns);
+    return vol > 0 ? (ret - 4.5) / vol : 0;
+}
+
+function maxDrawdown(returns) {
+    let cum = 1, peak = 1, worst = 0;
+    for (const r of returns) {
+        cum *= (1 + r / 100);
+        peak = Math.max(peak, cum);
+        worst = Math.min(worst, (cum / peak - 1) * 100);
+    }
+    return worst;
+}
+
+function cumulativeGrowth(returns) {
+    const g = [1.0];
+    for (const r of returns) g.push(g[g.length - 1] * (1 + r / 100));
+    return g;
+}
+
+/* =================================================================== */
+/* RANKING                                                              */
+/* =================================================================== */
+function rankStocks(year, lookbackMonths, strategy) {
+    const endYM = `${year}-01`; // Standing at start of this year
+    const tickers = Object.keys(DATA.tickers);
+    const ranked = [];
+
+    for (const ticker of tickers) {
+        const d = DATA.tickers[ticker];
+        const endIdx = findClosestDate(d.dates, endYM);
+        if (endIdx < 0) continue;
+
+        const startIdx = endIdx - lookbackMonths + 1;
+        if (startIdx < 0) continue;
+
+        const pastReturns = d.returns.slice(startIdx, endIdx + 1);
+        if (pastReturns.length < lookbackMonths * 0.8) continue; // need 80% of lookback
+
+        const pastRet = totalReturn(pastReturns);
+        const pastVol = annVol(pastReturns);
+        const pastSharpe = sharpeRatio(pastReturns);
+
+        // Dividend yield: average of last 12 months divYield values
+        let avgDivYield = null;
+        if (d.divYield) {
+            const divSlice = d.divYield.slice(Math.max(0, endIdx - 11), endIdx + 1).filter(v => v !== null);
+            if (divSlice.length > 0) avgDivYield = divSlice[divSlice.length - 1]; // trailing 12mo
+        }
+
+        // Above MA flag at lookback end
+        let aboveMA = null;
+        if (d.aboveMA && endIdx < d.aboveMA.length) {
+            aboveMA = d.aboveMA[endIdx];
+        }
+
+        ranked.push({
+            ticker, sector: d.sector, name: d.name,
+            pastRet, pastVol, pastSharpe, avgDivYield, aboveMA,
+        });
+    }
+
+    // Sort based on strategy
+    switch(strategy) {
+        case 'best_return':
+            ranked.sort((a,b) => b.pastRet - a.pastRet); break;
+        case 'worst_return':
+            ranked.sort((a,b) => a.pastRet - b.pastRet); break;
+        case 'best_sharpe':
+            ranked.sort((a,b) => b.pastSharpe - a.pastSharpe); break;
+        case 'low_vol':
+            ranked.sort((a,b) => a.pastVol - b.pastVol); break;
+        case 'above_ma':
+            // Put above-MA stocks first, then sort by return
+            ranked.sort((a,b) => {
+                if (a.aboveMA !== b.aboveMA) return (b.aboveMA || 0) - (a.aboveMA || 0);
+                return b.pastRet - a.pastRet;
+            }); break;
+        case 'high_div':
+            ranked.sort((a,b) => (b.avgDivYield || 0) - (a.avgDivYield || 0)); break;
+    }
+
+    return ranked;
+}
+
+/* =================================================================== */
+/* DISPLAY RANKING TABLE                                                */
+/* =================================================================== */
+function displayRanking(ranked, nStocks, strategy) {
+    const strategyLabel = {
+        best_return: 'ranked by past return (best first)',
+        worst_return: 'ranked by past return (worst first)',
+        best_sharpe: 'ranked by past Sharpe ratio',
+        low_vol: 'ranked by past volatility (lowest first)',
+        above_ma: 'ranked by momentum (above 12-mo MA first)',
+        high_div: 'ranked by dividend yield (highest first)',
+    };
+
+    document.getElementById('ranking-subtitle').textContent =
+        `\u2014 ${ranked.length} stocks ${strategyLabel[strategy]}`;
+
+    const quintileSize = Math.ceil(ranked.length / 5);
+    let html = `<table class="ranking-table">
+        <thead><tr>
+            <th>#</th><th>Ticker</th><th>Sector</th>
+            <th class="num">Past Return</th>
+            <th class="num">Past Vol</th>
+            <th class="num">Past Sharpe</th>
+            ${strategy === 'high_div' ? '<th class="num">Div Yield</th>' : ''}
+            ${strategy === 'above_ma' ? '<th>Above MA</th>' : ''}
+        </tr></thead><tbody>`;
+
+    ranked.forEach((s, i) => {
+        const cls = i < nStocks ? 'selected' :
+                    i < quintileSize ? 'top' :
+                    i >= ranked.length - quintileSize ? 'bottom' : '';
+        html += `<tr class="${cls}">
+            <td>${i + 1}</td>
+            <td><b>${s.ticker}</b></td>
+            <td>${s.sector}</td>
+            <td class="num">${s.pastRet >= 0 ? '+' : ''}${s.pastRet.toFixed(1)}%</td>
+            <td class="num">${s.pastVol.toFixed(1)}%</td>
+            <td class="num">${s.pastSharpe.toFixed(2)}</td>
+            ${strategy === 'high_div' ? `<td class="num">${s.avgDivYield != null ? s.avgDivYield.toFixed(1) + '%' : 'N/A'}</td>` : ''}
+            ${strategy === 'above_ma' ? `<td>${s.aboveMA ? 'Yes' : 'No'}</td>` : ''}
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    document.getElementById('ranking-wrap').innerHTML = html;
+}
+
+/* =================================================================== */
+/* FORWARD-LOOKING RESULTS                                              */
+/* =================================================================== */
+function getForwardReturns(tickers, year, holdMonths) {
+    const startYM = `${year}-01`;
+
+    // Find common forward dates
+    const spy = DATA.spy;
+    const spyStart = findClosestDate(spy.dates, startYM);
+    if (spyStart < 0) return null;
+    const spyEnd = Math.min(spyStart + holdMonths, spy.dates.length);
+    const spyFwd = spy.returns.slice(spyStart, spyEnd);
+    const fwdDates = spy.dates.slice(spyStart, spyEnd);
+
+    if (fwdDates.length < 6) return null;
+
+    // Portfolio returns (equal-weight)
+    const portRet = new Array(fwdDates.length).fill(0);
+    let validCount = 0;
+
+    for (const t of tickers) {
+        const d = DATA.tickers[t];
+        if (!d) continue;
+
+        const tStart = findClosestDate(d.dates, startYM);
+        if (tStart < 0) continue;
+
+        const dateMap = {};
+        d.dates.forEach((dt, i) => dateMap[dt] = d.returns[i]);
+
+        let hasData = true;
+        const ret = fwdDates.map(dt => {
+            if (dateMap[dt] !== undefined) return dateMap[dt];
+            hasData = false; return 0;
+        });
+
+        if (hasData) {
+            validCount++;
+            for (let i = 0; i < fwdDates.length; i++) portRet[i] += ret[i];
+        }
+    }
+
+    if (validCount === 0) return null;
+    for (let i = 0; i < portRet.length; i++) portRet[i] /= validCount;
+
+    // Random portfolio (pick same number of random stocks)
+    const allTickers = Object.keys(DATA.tickers);
+    const randomPicks = [];
+    const shuffled = [...allTickers].sort(() => Math.random() - 0.5);
+    for (const t of shuffled) {
+        if (randomPicks.length >= tickers.length) break;
+        if (!tickers.includes(t)) randomPicks.push(t);
+    }
+
+    const randomRet = new Array(fwdDates.length).fill(0);
+    let randCount = 0;
+    for (const t of randomPicks) {
+        const d = DATA.tickers[t];
+        const dateMap = {};
+        d.dates.forEach((dt, i) => dateMap[dt] = d.returns[i]);
+        let ok = true;
+        const ret = fwdDates.map(dt => {
+            if (dateMap[dt] !== undefined) return dateMap[dt];
+            ok = false; return 0;
+        });
+        if (ok) { randCount++; for (let i = 0; i < fwdDates.length; i++) randomRet[i] += ret[i]; }
+    }
+    if (randCount > 0) for (let i = 0; i < randomRet.length; i++) randomRet[i] /= randCount;
+
+    return { dates: fwdDates, portRet, spyRet: spyFwd, randomRet, validCount };
+}
+
+/* =================================================================== */
+/* DISPLAY RESULTS                                                      */
+/* =================================================================== */
+function displayResults(fwd, strategyName, year) {
+    document.getElementById('results').style.display = 'block';
+
+    const portTotal = totalReturn(fwd.portRet);
+    const spyTotal = totalReturn(fwd.spyRet);
+    const randTotal = totalReturn(fwd.randomRet);
+    const portVol = annVol(fwd.portRet);
+    const spyVol = annVol(fwd.spyRet);
+    const portSharpe = sharpeRatio(fwd.portRet);
+    const spySharpe = sharpeRatio(fwd.spyRet);
+    const portDD = maxDrawdown(fwd.portRet);
+    const spyDD = maxDrawdown(fwd.spyRet);
+
+    const fmtPct = (v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
+
+    document.getElementById('stats').innerHTML = `
+        <div class="stat">
+            <div class="lbl">Strategy Return</div>
+            <div class="val ${portTotal >= spyTotal ? 'green' : 'red'}">${fmtPct(portTotal)}</div>
+            <div class="sub">Total over period</div>
+        </div>
+        <div class="stat">
+            <div class="lbl">S&P 500 Return</div>
+            <div class="val">${fmtPct(spyTotal)}</div>
+            <div class="sub">Benchmark</div>
+        </div>
+        <div class="stat">
+            <div class="lbl">Strategy Sharpe</div>
+            <div class="val">${portSharpe.toFixed(2)}</div>
+            <div class="sub">SPY: ${spySharpe.toFixed(2)}</div>
+        </div>
+        <div class="stat">
+            <div class="lbl">Max Drawdown</div>
+            <div class="val ${Math.abs(portDD) <= Math.abs(spyDD) ? 'green' : 'red'}">${portDD.toFixed(1)}%</div>
+            <div class="sub">SPY: ${spyDD.toFixed(1)}%</div>
+        </div>
+    `;
+
+    // Insight
+    const beat = portTotal > spyTotal;
+    const labels = {
+        best_return: 'Buy Past Winners',
+        worst_return: 'Buy Past Losers (contrarian)',
+        best_sharpe: 'Best Past Sharpe',
+        low_vol: 'Lowest Past Volatility',
+        above_ma: 'Momentum (Above MA)',
+        high_div: 'High Dividend Yield',
+    };
+    let insight = `Your <b>"${labels[strategyName]}"</b> strategy returned <b>${fmtPct(portTotal)}</b>, ` +
+        `while the S&P 500 returned <b>${fmtPct(spyTotal)}</b> and a random portfolio returned <b>${fmtPct(randTotal)}</b>.`;
+
+    if (strategyName === 'best_return' && !beat) {
+        insight += `<br><br><b>Mean reversion in action:</b> Past winners didn't keep winning. This is consistent with the idea that markets are at least partially efficient.`;
+    } else if (strategyName === 'worst_return' && beat) {
+        insight += `<br><br><b>Contrarian investing worked here:</b> Past losers bounced back, consistent with mean reversion.`;
+    } else if (strategyName === 'best_return' && beat) {
+        insight += `<br><br><b>Momentum persisted:</b> Winners kept winning in this period. However, check if this holds across all years.`;
+    }
+
+    if (year >= 2007 && year <= 2008) {
+        insight += `<br><br><b>Financial crisis context:</b> You're investing around the 2008 crisis. Watch how the portfolio behaves during extreme market stress.`;
+    }
+
+    document.getElementById('insight-box').innerHTML = insight;
+
+    // Growth chart
+    const gd = ['Start', ...fwd.dates];
+    const traces = [
+        {
+            x: gd, y: cumulativeGrowth(fwd.portRet),
+            mode: 'lines', name: 'Your Strategy',
+            line: { color: SCARLET, width: 3 },
+            hovertemplate: 'Strategy: $%{y:.2f}<extra></extra>',
+        },
+        {
+            x: gd, y: cumulativeGrowth(fwd.spyRet),
+            mode: 'lines', name: 'S&P 500',
+            line: { color: SPY_COLOR, width: 2.5, dash: 'dot' },
+            hovertemplate: 'SPY: $%{y:.2f}<extra></extra>',
+        },
+        {
+            x: gd, y: cumulativeGrowth(fwd.randomRet),
+            mode: 'lines', name: `Random ${fwd.validCount} stocks`,
+            line: { color: RANDOM_COLOR, width: 2, dash: 'dash' },
+            hovertemplate: 'Random: $%{y:.2f}<extra></extra>',
+        },
+    ];
+
+    const holdYears = (fwd.dates.length / 12).toFixed(1);
+    const layout = {
+        title: { text: `Growth of $1 (${holdYears} yr forward from ${year})`, font: { size: 15, color: '#333' } },
+        xaxis: { gridcolor: '#eee', tickangle: -45, tickfont: { size: 10 } },
+        yaxis: { title: 'Value ($)', gridcolor: '#eee' },
+        showlegend: true,
+        legend: { x: .02, y: .98, bgcolor: 'rgba(255,255,255,.85)', bordercolor: '#ddd', borderwidth: 1 },
+        margin: { l: 56, r: 24, t: 48, b: 60 },
+        plot_bgcolor: '#fafafa', paper_bgcolor: 'white',
+        shapes: [{
+            type: 'line', x0: gd[0], x1: gd[gd.length-1],
+            y0: 1, y1: 1, line: { color: '#aaa', width: 1, dash: 'dash' },
+        }],
+    };
+    Plotly.newPlot('chart-growth', traces, layout, plotCfg);
+}
+
+/* =================================================================== */
+/* RUN ALL YEARS                                                        */
+/* =================================================================== */
+function runAllYears() {
+    if (!DATA) return;
+    const strategy = document.getElementById('strategy').value;
+    const lookback = parseInt(document.getElementById('lookback').value);
+    const hold = parseInt(document.getElementById('hold').value);
+    const nStocks = parseInt(document.getElementById('nstocks').value);
+
+    const minYear = 2006;
+    const maxYear = 2021;
+    const results = [];
+
+    for (let year = minYear; year <= maxYear; year++) {
+        const ranked = rankStocks(year, lookback, strategy);
+        if (ranked.length < nStocks) continue;
+        const selected = ranked.slice(0, nStocks).map(s => s.ticker);
+        const fwd = getForwardReturns(selected, year, hold);
+        if (!fwd || fwd.dates.length < 6) continue;
+
+        const stratRet = totalReturn(fwd.portRet);
+        const spyRet = totalReturn(fwd.spyRet);
+        results.push({ year, stratRet, spyRet, beat: stratRet > spyRet });
+    }
+
+    if (results.length === 0) {
+        showError('Not enough data to run all years');
+        return;
+    }
+
+    document.getElementById('all-years-results').style.display = 'block';
+
+    const wins = results.filter(r => r.beat).length;
+    const winPct = (wins / results.length * 100).toFixed(0);
+    document.getElementById('summary-box').innerHTML =
+        `Your strategy beat the S&P 500 in <span class="big">${wins} of ${results.length} periods (${winPct}%)</span>`;
+
+    // Bar chart
+    const years = results.map(r => r.year.toString());
+    const stratBars = {
+        x: years, y: results.map(r => r.stratRet), type: 'bar',
+        name: 'Strategy', marker: { color: results.map(r => r.beat ? '#1a7a1a' : '#cc0000') },
+        hovertemplate: '%{x}: %{y:.1f}%<extra>Strategy</extra>',
+    };
+    const spyBars = {
+        x: years, y: results.map(r => r.spyRet), type: 'bar',
+        name: 'S&P 500', marker: { color: 'rgba(68,114,196,0.6)' },
+        hovertemplate: '%{x}: %{y:.1f}%<extra>SPY</extra>',
+    };
+
+    const layout = {
+        title: { text: 'Strategy vs S&P 500 by Start Year', font: { size: 15, color: '#333' } },
+        barmode: 'group',
+        xaxis: { title: 'Start Year', tickangle: -45 },
+        yaxis: { title: 'Total Forward Return (%)', gridcolor: '#eee',
+                 zeroline: true, zerolinecolor: '#999' },
+        showlegend: true,
+        legend: { x: .02, y: .98, bgcolor: 'rgba(255,255,255,.85)', bordercolor: '#ddd', borderwidth: 1 },
+        margin: { l: 56, r: 24, t: 48, b: 60 },
+        plot_bgcolor: '#fafafa', paper_bgcolor: 'white',
+    };
+    Plotly.newPlot('chart-allyears', [stratBars, spyBars], layout, plotCfg);
+}
+
+/* =================================================================== */
+/* EVENT HANDLERS                                                       */
+/* =================================================================== */
+function onYearChange(val) {
+    document.getElementById('year-display').textContent = `You are standing in ${val}`;
+    onSettingChange();
+}
+
+function onSettingChange() {
+    if (!DATA) return;
+    const year = parseInt(document.getElementById('year-slider').value);
+    const lookback = parseInt(document.getElementById('lookback').value);
+    const strategy = document.getElementById('strategy').value;
+    const nStocks = parseInt(document.getElementById('nstocks').value);
+
+    const ranked = rankStocks(year, lookback, strategy);
+    displayRanking(ranked, nStocks, strategy);
+
+    // Hide previous results when settings change
+    document.getElementById('results').style.display = 'none';
+    document.getElementById('all-years-results').style.display = 'none';
+}
+
+function runStrategy() {
+    if (!DATA) return;
+    const year = parseInt(document.getElementById('year-slider').value);
+    const lookback = parseInt(document.getElementById('lookback').value);
+    const hold = parseInt(document.getElementById('hold').value);
+    const strategy = document.getElementById('strategy').value;
+    const nStocks = parseInt(document.getElementById('nstocks').value);
+
+    const ranked = rankStocks(year, lookback, strategy);
+    if (ranked.length < nStocks) {
+        showError(`Only ${ranked.length} stocks available for that period`);
+        return;
+    }
+
+    const selected = ranked.slice(0, nStocks).map(s => s.ticker);
+    const fwd = getForwardReturns(selected, year, hold);
+    if (!fwd) {
+        showError('Not enough forward data for that period');
+        return;
+    }
+
+    displayResults(fwd, strategy, year);
+    document.getElementById('all-years-results').style.display = 'none';
+}
+</script>
+</body>
+</html>
